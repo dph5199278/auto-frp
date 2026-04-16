@@ -1,0 +1,56 @@
+name: goreleaser
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  goreleaser:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          repository: ${{ secrets.GPR_REPOSITORY || 'fatedier/frp' }}
+          token: ${{ secrets.GPR_TOKEN }}
+          fetch-depth: 0
+          fetch-tags: false
+          ref: dev
+      - name: Fetch all tags from private repo
+        run: git fetch --tags
+      - name: Create local tag only if not exists
+        run: |
+          if git rev-parse "${{ github.ref_name }}" >/dev/null 2>&1; then
+            echo "✅ Tag ${{ github.ref_name }} already exists in the repo, using it"
+          else
+            echo "🏷️ Tag ${{ github.ref_name }} not found, creating local tag"
+            git tag "${{ github.ref_name }}"
+          fi
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.25'
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - name: Build web assets (frps)
+        run: make build
+        working-directory: web/frps
+      - name: Build web assets (frpc)
+        run: make build
+        working-directory: web/frpc
+      - name: Make All
+        run: |
+          ./package.sh
+
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v7
+        with:
+          version: latest
+          args: release --clean --release-notes=./Release.md
+        env:
+          GITHUB_TOKEN: ${{ secrets.GPR_TOKEN }}
+          GORELEASER_CURRENT_TAG: ${{ github.ref_name }}
